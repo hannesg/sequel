@@ -666,7 +666,16 @@ module Sequel
         im = instance_methods.collect{|x| x.to_s}
         columns.each do |column|
           meth = "#{column}="
-          overridable_methods_module.module_eval("def #{column}; self[:#{column}] end", __FILE__, __LINE__) unless im.include?(column.to_s)
+          if im.include?(column.to_s)
+            # guess whether this method is important:
+            if [Object, Kernel].include? instance_method(column).owner
+              overridable_methods_module.module_eval("def __sequel_column_#{column}; self[:#{column}] end", __FILE__, __LINE__)
+            else
+              overridable_methods_module.module_eval("def __sequel_column_#{column}; #{column} end", __FILE__, __LINE__)
+            end
+          else
+            overridable_methods_module.module_eval("def #{column}; self[:#{column}] end; def __sequel_column_#{column}; #{column}; end", __FILE__, __LINE__)
+          end
           overridable_methods_module.module_eval("def #{meth}(v); self[:#{column}] = v end", __FILE__, __LINE__) unless im.include?(meth)
         end
       end
@@ -872,6 +881,29 @@ module Sequel
       #   Artist[1][:id] #=> 1
       def [](column)
         @values[column]
+      end
+
+      #
+      # Returns the value of the column's attribute using the
+      # defined accessors.
+      #
+      #   a = Artist.new
+      #   a[:name] = 'Bob'
+      #   a.column_value(:name) #=> 'Bob'
+      #   a[:name] #=> 'Bob'
+      #   def a.name
+      #     'Jake'
+      #   end
+      #   a.column_value(:name) #=> 'Jake'
+      #   a[:name] #=> 'Bob'
+      #
+      def column_value(column)
+        meth = "__sequel_column_#{column}"
+        if respond_to? meth
+          send(meth)
+        else
+          send(column)
+        end
       end
   
       # Sets the value for the given column.  If typecasting is enabled for

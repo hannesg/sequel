@@ -2260,7 +2260,7 @@ describe Sequel::Model, "many_to_many" do
 
   it "should have the remove_all_ method respect the :left_primary_key option" do
     @c2.many_to_many :attributes, :class => @c1, :left_primary_key=>:xxx
-    @c2.new(:id => 1234, :xxx=>5).remove_all_attributes
+    o = @c2.new(:id => 1234, :xxx=>5).remove_all_attributes
     MODEL_DB.sqls.should == ['DELETE FROM attributes_nodes WHERE (node_id = 5)']
   end
   
@@ -2925,5 +2925,39 @@ describe "Filtering by associations" do
 
   it "should do a regular IN query if a non-model dataset is used" do
     @Album.filter(:artist=>@Album.db.from(:albums).select(:x)).sql.should == 'SELECT * FROM albums WHERE (artist IN (SELECT x FROM albums))'
+  end
+
+  describe "with taken method as column name" do
+
+    before do
+      @c1 = Class.new(Sequel::Model(:object)) do
+        unrestrict_primary_key
+        columns :id
+      end
+
+      @c2 = Class.new(Sequel::Model(:part)) do
+        def _refresh(ds); end
+        unrestrict_primary_key
+        columns :id, :object_id
+      end
+      @dataset = @c2.dataset
+      @dataset._fetch = {}
+      @c1.dataset._fetch = proc{|sql| sql =~ /^SELECT.*object\.id = 1[^\d]/ ? {:id=>1} : nil}
+      @c2.dataset._fetch = proc{|sql| sql =~ /SELECT / ? {:id=>1, :object_id=>1} : {}}
+      MODEL_DB.reset
+    end
+
+    it "should work with one_to_many" do
+      @c2.many_to_one(:object,:class => @c1)
+      first = @c2.first
+      first.object.should_not be_nil
+    end
+
+    it "should work with one_to_many eagerly" do
+      @c2.many_to_one(:object,:class => @c1)
+      first = @c2.eager(:object).first
+      first.object.should_not be_nil
+    end
+
   end
 end

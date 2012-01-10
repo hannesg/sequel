@@ -227,7 +227,7 @@ module Sequel
         # many_to_one associations can only have associated objects if none of
         # the :keys options have a nil value.
         def can_have_associated_objects?(obj)
-          !self[:keys].any?{|k| obj.send(k).nil?}
+          !self[:keys].any?{|k| obj.column_value(k).nil?}
         end
         
         # Whether the dataset needs a primary key to function, false for many_to_one associations.
@@ -310,7 +310,7 @@ module Sequel
         # one_to_many associations can only have associated objects if none of
         # the :keys options have a nil value.
         def can_have_associated_objects?(obj)
-          !self[:primary_keys].any?{|k| obj.send(k).nil?}
+          !self[:primary_keys].any?{|k| obj.column_value(k).nil?}
         end
 
         # Default foreign key name symbol for key in associated table that points to
@@ -424,7 +424,7 @@ module Sequel
         # many_to_many associations can only have associated objects if none of
         # the :left_primary_keys options have a nil value.
         def can_have_associated_objects?(obj)
-          !self[:left_primary_keys].any?{|k| obj.send(k).nil?}
+          !self[:left_primary_keys].any?{|k| obj.column_value(k).nil?}
         end
 
         # The default associated key alias(es) to use when eager loading
@@ -1105,15 +1105,15 @@ module Sequel
       
           association_module_private_def(opts._add_method, opts) do |o|
             h = {}
-            lcks.zip(lcpks).each{|k, pk| h[k] = send(pk)}
-            rcks.zip(opts.right_primary_keys).each{|k, pk| h[k] = o.send(pk)}
+            lcks.zip(lcpks).each{|k, pk| h[k] = column_value(pk)}
+            rcks.zip(opts.right_primary_keys).each{|k, pk| h[k] = o.column_value(pk)}
             _join_table_dataset(opts).insert(h)
           end
           association_module_private_def(opts._remove_method, opts) do |o|
-            _join_table_dataset(opts).filter(lcks.zip(lcpks.map{|k| send(k)}) + rcks.zip(opts.right_primary_keys.map{|k| o.send(k)})).delete
+            _join_table_dataset(opts).filter(lcks.zip(lcpks.map{|k| column_value(k)}) + rcks.zip(opts.right_primary_keys.map{|k| o.column_value(k)})).delete
           end
           association_module_private_def(opts._remove_all_method, opts) do
-            _join_table_dataset(opts).filter(lcks.zip(lcpks.map{|k| send(k)})).delete
+            _join_table_dataset(opts).filter(lcks.zip(lcpks.map{|k| column_value(k)})).delete
           end
       
           def_add_method(opts)
@@ -1142,7 +1142,7 @@ module Sequel
           opts[:cartesian_product_number] ||= 0
           opts[:dataset] ||= proc do
             klass = opts.associated_class
-            klass.filter(Array(opts.qualified_primary_key).zip(cks.map{|k| send(k)}))
+            klass.filter(Array(opts.qualified_primary_key).zip(cks.map{|k| column_value(k)}))
           end
           opts[:eager_loader] ||= proc do |eo|
             h = eo[:key_hash][key_column]
@@ -1154,7 +1154,7 @@ module Sequel
             unless keys.empty?
               klass = opts.associated_class
               model.eager_loading_dataset(opts, klass.filter(opts.qualified_primary_key=>keys), nil, eo[:associations], eo).all do |assoc_record|
-                hash_key = uses_cks ? opts.primary_keys.map{|k| assoc_record.send(k)} : assoc_record.send(opts.primary_key)
+                hash_key = uses_cks ? opts.primary_keys.map{|k| assoc_record.column_value(k)} : assoc_record.column_value(opts.primary_key)
                 next unless objects = h[hash_key]
                 objects.each{|object| object.associations[name] = assoc_record}
               end
@@ -1177,7 +1177,7 @@ module Sequel
           
           return if opts[:read_only]
       
-          association_module_private_def(opts._setter_method, opts){|o| cks.zip(opts.primary_keys).each{|k, pk| send(:"#{k}=", (o.send(pk) if o))}}
+          association_module_private_def(opts._setter_method, opts){|o| cks.zip(opts.primary_keys).each{|k, pk| send(:"#{k}=", (o.column_value(pk) if o))}}
           association_module_def(opts.setter_method, opts){|o| set_associated_object(opts, o)}
         end
         
@@ -1193,7 +1193,7 @@ module Sequel
           raise(Error, "mismatched number of composite keys: #{cks.inspect} vs #{cpks.inspect}") unless cks.length == cpks.length
           uses_cks = opts[:uses_composite_keys] = cks.length > 1
           opts[:dataset] ||= proc do
-            opts.associated_class.filter(Array(opts.qualified_key).zip(cpks.map{|k| send(k)}))
+            opts.associated_class.filter(Array(opts.qualified_key).zip(cpks.map{|k| column_value(k)}))
           end
           opts[:eager_loader] ||= proc do |eo|
             h = eo[:key_hash][primary_key]
@@ -1221,7 +1221,7 @@ module Sequel
             end
             ds.all do |assoc_record|
               assoc_record.values.delete(rn) if delete_rn
-              hash_key = uses_cks ? cks.map{|k| assoc_record.send(k)} : assoc_record.send(key)
+              hash_key = uses_cks ? cks.map{|k| assoc_record.column_value(k)} : assoc_record.column_value(key)
               next unless objects = h[hash_key]
               if one_to_one
                 objects.each do |object| 
@@ -1268,10 +1268,10 @@ module Sequel
 
             if one_to_one
               association_module_private_def(opts._setter_method, opts) do |o|
-                up_ds = _apply_association_options(opts, opts.associated_class.filter(cks.zip(cpks.map{|k| send(k)})))
+                up_ds = _apply_association_options(opts, opts.associated_class.filter(cks.zip(cpks.map{|k| column_value(k)})))
                 if o
                   up_ds = up_ds.exclude(o.pk_hash)
-                  cks.zip(cpks).each{|k, pk| o.send(:"#{k}=", send(pk))}
+                  cks.zip(cpks).each{|k, pk| o.send(:"#{k}=", column_value(pk))}
                 end
                 checked_transaction do
                   up_ds.update(ck_nil_hash)
@@ -1281,7 +1281,7 @@ module Sequel
               association_module_def(opts.setter_method, opts){|o| set_one_to_one_associated_object(opts, o)}
             else 
               association_module_private_def(opts._add_method, opts) do |o|
-                cks.zip(cpks).each{|k, pk| o.send(:"#{k}=", send(pk))}
+                cks.zip(cpks).each{|k, pk| o.send(:"#{k}=", column_value(pk))}
                 o.save(:validate=>validate) || raise(Sequel::Error, "invalid associated object, cannot save")
               end
               def_add_method(opts)
@@ -1291,7 +1291,7 @@ module Sequel
                 o.save(:validate=>validate) || raise(Sequel::Error, "invalid associated object, cannot save")
               end
               association_module_private_def(opts._remove_all_method, opts) do
-                _apply_association_options(opts, opts.associated_class.filter(cks.zip(cpks.map{|k| send(k)}))).update(ck_nil_hash)
+                _apply_association_options(opts, opts.associated_class.filter(cks.zip(cpks.map{|k| column_value(k)}))).update(ck_nil_hash)
               end
               def_remove_methods(opts)
             end
@@ -1864,17 +1864,17 @@ module Sequel
           vals = if obj.is_a?(Sequel::Dataset)
             {(keys.length == 1 ? keys.first : keys)=>obj.select(*meths).exclude(Sequel::SQL::BooleanExpression.from_value_pairs(meths.zip([]), :OR))}
           else
-            vals = Array(obj).reject{|o| !meths.all?{|m| o.send(m)}}
+            vals = Array(obj).reject{|o| !meths.all?{|m| o.column_value(m)}}
             return SQL::Constants::FALSE if vals.empty?
             if obj.is_a?(Array)
               if keys.length == 1
                 meth = meths.first
-                {keys.first=>vals.map{|o| o.send(meth)}}
+                {keys.first=>vals.map{|o| o.column_value(meth)}}
               else
-                {keys=>vals.map{|o| meths.map{|m| o.send(m)}}}
+                {keys=>vals.map{|o| meths.map{|m| o.column_value(m)}}}
               end  
             else
-              keys.zip(meths.map{|k| obj.send(k)})
+              keys.zip(meths.map{|k| obj.column_value(k)})
             end
           end
           SQL::BooleanExpression.from_value_pairs(vals)
